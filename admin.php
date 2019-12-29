@@ -54,18 +54,7 @@ foreach ($countries as $code=>$mode)
 }*/
 
 
-/*
-include(__DIR__.'/config.php');
-include(__DIR__.'/cloudflare.class.php');
-$cf = new Cloudflare($configCF);
-$cf->auth($configCF['email'], $configCF['key'], $configCF['zone']); // авторизация на Cloudflare
 
-$id='5679d0020420479e98d5dd4cb2292168';
-$r=$cf->delrule($id);
-
-
-var_dump($id, $r);
-*/
 
 function delrules($file)
 {
@@ -145,7 +134,7 @@ else
 	
 	if (!isset($_GET['menu'])) $_GET['menu']='';
 	
-	foreach ($menu as $i=>&$t) if ($i!=$_GET['menu']) $t="<a href='admin.php?menu=$i'>$t</a>"; else $t="<b>$t</b>";
+	foreach ($submenu[$_GET['menu']] as $i=>&$t) if (isset($_GET[$i])) $t="$t"; else $t="<a href='admin.php?menu={$_GET['menu']}&$i'>$t</a>";
 	$echo.='<div class="headmenu">'.implode(' | ', $menu).'</div>';
 	
 	
