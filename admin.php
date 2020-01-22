@@ -38,12 +38,33 @@ function listip($ipdir, $more)
 	$items = glob($ipdir.'/*');
 	foreach ($items as $ip)
 	{
-		$list[]=viewip($ip, $more);
+		if (substr($ip,-3)!='txt') $list[]=viewip($ip, $more);
 	}
 		
 		
 	return $list;	
 }
+
+
+function listGeoBot($dir)
+{
+	$list=[];
+	$items = glob($dir.'/*');
+	foreach ($items as $codeFile)
+	{
+		if (substr($codeFile,-3)!='txt')
+		{
+			$code=substr(strrchr($codeFile, "/"), 1);
+			
+			$list[$code]=file_get_contents($codeFile);
+			
+		}
+	}
+		
+		
+	return $list;	
+}
+
 
 
 /*
@@ -59,12 +80,11 @@ foreach ($countries as $code=>$mode)
 function delrules($file)
 {
 	$dfile=__DIR__.'/cloudflare/'.$file.'.txt';
-	$file=file_get_contents($dfile);
-	
-	$data=json_decode($file, true);
+ 
+	$data=json_decode(file_get_contents($dfile), true);
 	if (empty($data)) 
 	{
-		return '<br><br><b>Скрипт завершил работу</b><br><br>';
+		return '<br><b>Скрипт завершил работу (удаление '.$file.')</b> <br><br>';
 	}
 	
 	$key=key($data);
@@ -78,11 +98,16 @@ function delrules($file)
 	$cf->auth($configCF['email'], $configCF['key'], $configCF['zone']); // авторизация на Cloudflare
 	
 	$r=$cf->delrule($id);
-
-	if (!isset($r['success']) || $r['success']==false)
+	
+	if (isset($r['error']))
 	{
-		var_dump($id, $r);
-		echo 'Не получается удалить запись '.$key. '. <a href="../admin.php?menu=cf">Остановить удаление</a>';
+		if ($r['error']=='not_found') $r=['success'=>true];
+	}
+
+	if ( (!isset($r['success']) || $r['success']==false))
+	{
+		//var_dump($id, $r);
+		echo 'Не получается удалить запись '.$key. ', взможно отсутствует подключение к Cloudflare. <a href="admin.php?menu=cf">Остановить удаление</a>';
 		echo '<meta http-equiv="refresh" content="3">';
 		exit;
 	}
@@ -93,7 +118,7 @@ function delrules($file)
 	file_put_contents($dfile, json_encode($data) );
 	
 	
-	echo 'Удалена запись '.$key. '. <a href="../admin.php?menu=cf">Остановить удаление</a>';
+	echo 'Удалена запись '.$key. '. <a href="admin.php?menu=cf">Остановить удаление</a>';
 	echo '<meta http-equiv="refresh" content="3">';
 	exit;
 }
@@ -130,23 +155,34 @@ if ( !isset($_SESSION['pass']) || $_SESSION['pass']!=md5($config['admin']['pass'
 else
 {
 	$menu=array('banip'=>'Список забаненных IP', 'whiteip'=>'Белый список IP', 'captcha_ip'=>'Прошедшие капчу', 'cf'=>'Cloudflare правила', 'clearcount'=>'Очистить счетчик');
-	$submenu=array('banip'=>array('clearban'=>'Очистить', 'more'=>'Подробнее'), 'whiteip'=>array('clearwhite'=>'Очистить', 'more'=>'Подробнее'), 'captcha_ip'=>array('clearcaptcha_ip'=>'Очистить', 'more'=>'Подробнее'), 'cf'=>array('country'=>'Заблокированные страны', 'ip'=>'Заблокированные IP', 'range'=>'Заблокированные подсети', 'clearcountry'=>'Удалить страны', 'clearip'=>'Удалить IP', 'clearrange'=>'Удалить подсети') );
+	$submenu=array('banip'=>array('clearban'=>'Очистить', 'more'=>'Подробнее'), 'whiteip'=>array('clearwhite'=>'Очистить', 'more'=>'Подробнее'), 'captcha_ip'=>array('clearcaptcha_ip'=>'Очистить', 'more'=>'Подробнее'), 'cf'=>array('country'=>'Заблокированные страны', 'ip'=>'Заблокированные IP', 'ip_range'=>'Заблокированные подсети', 'geobot'=>'География ботов') );
 	
 	if (!isset($_GET['menu'])) $_GET['menu']='';
 	
-	foreach ($submenu[$_GET['menu']] as $i=>&$t) if (isset($_GET[$i])) $t="$t"; else $t="<a href='admin.php?menu={$_GET['menu']}&$i'>$t</a>";
+	foreach ($menu as $i=>&$t) if ($i!=$_GET['menu']) $t="<a href='admin.php?menu=$i'>$t</a>"; else $t="<b>$t</b>";
 	$echo.='<div class="headmenu">'.implode(' | ', $menu).'</div>';
 	
 	
 	if (isset($submenu[$_GET['menu']]))
 	{
-		foreach ($submenu[$_GET['menu']] as $i=>&$t)  $t="<a href='admin.php?menu={$_GET['menu']}&$i'>$t</a>";
+		foreach ($submenu[$_GET['menu']] as $i=>&$t) if (!isset($_GET[$i]))  $t="<a href='admin.php?menu={$_GET['menu']}&$i'>$t</a>"; else $t="<b>$t</b>";
 		
 		//var_dump($submenu);
 		$echo.='<br><div style="padding-left:3px; padding-top:5px;">'.implode(' | ', $submenu[$_GET['menu']]).'</div>';
 	}
 	
-	$echo.='<br><br>';
+	$echo.='<br>';
+	
+	if ($_GET['menu']=='cf')
+	{
+		$echo.='<form method="get"><input type="hidden" name="menu" value="cf">';
+		if (isset($_GET['country'])) $echo.='<input type="hidden" name="country" value="1"><button name="action" value="clearcountry">Удалить страны</button>';
+		elseif (isset($_GET['ip'])) $echo.='<input type="hidden" name="ip" value="1"><button name="action" value="clearip">Удалить IP</button>';
+		elseif (isset($_GET['range'])) $echo.='<input type="hidden" name="range" value="1"><button name="action" value="clearrange">Удалить подсети</button>';
+		
+		
+		$echo.='</form><br>';
+	}
 	
 	/*
 	$echo ='<div style="padding:5px 0 0 5px;">
@@ -198,7 +234,7 @@ else
 	{
 		if (isset($_GET['clearcaptcha_ip']))
 		{
-			delfiles($dir.'clearcaptcha_ip');
+			delfiles($dir.'captcha_ip');
 			
 			$echo.= 'Операция выполнена. ';
 		}
@@ -231,18 +267,32 @@ else
 		{
 			$file='ip_range';
 		} 
-		elseif (isset($_GET['clearcountry']))
+		elseif (isset($_GET['geobot']))
 		{
-			$echo.=delrules('country');
-		} 
-		elseif(isset($_GET['clearip']))
+			$data=listGeoBot($dir.'countries');
+			
+			foreach ($data as $code=>$count)
+			{
+				$echo.= $code.': '.$count.'<br>';
+			
+			}			
+		
+		}
+		
+		if (isset($_GET['action'])) 
 		{
-			$echo.=delrules('ip');
-		} 
-		elseif(isset($_GET['clearrange']))
-		{
-			$echo.=delrules('ip_range');
-		}		
+			switch ($_GET['action'] ) {
+				case "clearcountry":
+					$echo.=delrules('country');
+					break;
+				case "clearip":
+					$echo.=delrules('ip');
+					break;
+				case "clearrange":
+					$echo.=delrules('ip_range');
+			}
+		}
+				
 		
 		if (isset($file))
 		{
@@ -268,9 +318,10 @@ else
 		
 	}
 }
-?><!DOCTYPE html><html><head><meta charset="utf-8" /><style type="text/css">
+?><!DOCTYPE html><html><head><meta charset="utf-8" /><title>Админка управления скриптом Antiddos</title><style type="text/css">
 body{  }
 .headmenu { font-size:14pt; }
+button { cursor:pointer;}
 .headmenu a{ font-size:14pt; } </style></head><body>
-<?=$echo?>
+<?=$echo?>  
 </body></html>
