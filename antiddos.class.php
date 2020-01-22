@@ -7,6 +7,7 @@ class Antiddos
 	public $conf;
 	public $country_code=''; // назначается в файле include.php
 	public $desc='';
+	public $counter=1;
  
 	function __construct($conf, $ip)
 	{
@@ -63,35 +64,39 @@ class Antiddos
 	// Проверяем, превышен ли лимит
 	function excessLimit()
 	{		
-		if ($this->conf['counter']=='url')
+		$id=$this->ip;
+		
+		if ($this->conf['counter']['url']==1)
 		{
-			$id=$this->ip.$_SERVER['REQUEST_URI'];
+			$id.=$_SERVER['REQUEST_URI'];
 		}
-		else
+		
+		if ($this->conf['counter']['user_agent']==1)
 		{
-			$id=$this->ip;
+			$id.=$_SERVER['HTTP_USER_AGENT'];
 		}
- 
-		$file=$this->dir.'count/'.md5($id.$_SERVER['HTTP_USER_AGENT'].date("ymdhi")); // Счетчик на минуту для каждой страницы с учетом браузера
+		
+		$file=$this->dir.'count/'.md5($id.date("ymdhi")); // Счетчик на минуту для каждой страницы с учетом браузера
 		
 		
 		if (!file_exists($file)) // Если за минуту заходов с этого пользователя не было, создаем файл
 		{
 			file_put_contents($file, "1");
-			
+					
 			return false; // не превышен
 		}
 		else
 		{
-			$c=file_get_contents($file);
+			$this->counter=file_get_contents($file)+1;
 			
-			if ($c > $this->conf['limit']) 
+			if ($this->counter > $this->conf['limit']) 
 			{
+				unlink($file); // Удаляем последний счетчик
 				return true; // превышен
 			}
 			else
 			{
-				file_put_contents($file, $c+1);
+				file_put_contents($file, $this->counter);
 				
 				return false; //  не превышен
 			}
