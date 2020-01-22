@@ -34,19 +34,20 @@ class Cloudflare
 	}
 	
 	
-	function counter()
+	function counterCountries()
 	{
-		$file=$this->savedir.'countries/'.$this->country;
+		$file=__DIR__.'/countries/'.$this->country;
 		
-		if (!file_exists($file)) $c=1; else $c=file_get_contents($file)+1;
+		if (!file_exists($file)) $c=1; else $c=file_get_contents($file);
+		if (!is_numeric($c)) $c=1;
 		
-		return file_put_contents($file, $c);
+		return file_put_contents($file, $c+1);
 	}
 	
 	
 	function response()
 	{
-		$response = curl_exec($this->handler) ;
+		$response = curl_exec($this->handler);
 		curl_close($this->handler);
 		
 		//var_dump($response);
@@ -82,6 +83,25 @@ class Cloudflare
 	}
 	
 	
+	function changeRuleMode($id, $mode, $note=false)
+	{
+		curl_setopt($this->handler, CURLOPT_URL, $this->urlzone.'firewall/access_rules/rules/'.$id);	
+		curl_setopt($this->handler, CURLOPT_CUSTOMREQUEST, 'PATCH');
+				
+		$data=['mode'=>$mode];
+		if($note) $data['note']=$note;
+		
+		$this->send($data);
+		$r=$this->response();
+		
+		if (isset($r['success']) && $r['success']==true)
+		{
+			 return true;
+		}
+		else return $r;
+	}
+	
+	
 	function addrule($add, $notes, $mode)
 	{
 		curl_setopt($this->handler, CURLOPT_URL, $this->urlzone.'firewall/access_rules/rules');	
@@ -93,10 +113,10 @@ class Cloudflare
 
 		if (isset($r['success']) && $r['success']==true)
 		{
-			 $this->save( $add['target'], $mode, $add['value']);
+			 $this->save( $add['target'], $add['value'], $mode, $r['result']['id']);
 			 return true;
 		}
-		else return false;
+		else return $r;
 	}
 	
 	
@@ -134,18 +154,39 @@ class Cloudflare
 		
 		return $this->addrule(['target'=>'ip_range', 'value'=>$ip[0].'.'.$ip[1].'.'.$ip[2].'.0/24'], $notes, $mode); 
 	}
-	 
-	//
-	function save($target, $mode, $value)
-	{		
+	
+	// IP прошел каптчу
+	function captchaPass()
+	{
+		copy(__DIR__.'/ban/'.$this->ip, __DIR__.'/captcha_ip/'.$this->ip);
+	} 
+	
+	
+	function getRules($target)
+	{
 		$file=$this->savedir.$target.'.txt';
 		$c=file_get_contents($file);
-		if (!$c) $arr=[]; else $arr=json_decode($c,true);
-
+		if (!$c) return array(); else return json_decode($c,true);
+	}
+	 
+	//
+	function save($target, $value, $mode, $id=false)
+	{		
+		$arr=$this->getRules($target);
 		
-		$arr[$value]=['id'=>$this->result['id'], 'mode'=>$mode];	
+		if (isset($arr[$value])) $arr[$value]['mode']=$mode; else $arr[$value]=['id'=>$id, 'mode'=>$mode];	
 	
-		file_put_contents($file, json_encode($arr) ); 
+		file_put_contents($this->savedir.$target.'.txt', json_encode($arr) ); 
+	}
+	
+	//
+	function getId($target, $value=false)
+	{
+		if (!$value) $value=$this->ip;
+		
+		$arr=$this->getRules($target);
+	
+		if (!isset($arr[$value])) return false; else return $arr[$value]['id'];
 	}
 
 }
