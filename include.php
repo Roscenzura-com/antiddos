@@ -30,7 +30,7 @@ if (is_file(__DIR__.'/ban/'.$_SERVER['REMOTE_ADDR'])) // В бане
 		
 		$cf->auth($configCF['email'], $configCF['key'], $configCF['zone']); // авторизация на Cloudflare
 		
-		$desc='antiddos.ddosforum.com '.$cf->country.' '.date('Y-m-d'); // комментарий для Cloudflare
+		$desc='antiddos '.$cf->country.' '.date('Y-m-d'); // комментарий для Cloudflare
 		
 		$cf->counterCountries(); // Счетчик по странам, папка countries, в админке: Cloudflare->География ботов
 		
