@@ -148,7 +148,7 @@ if ( !isset($_SESSION['pass']) || $_SESSION['pass']!=md5($config['admin']['pass'
 	if (isset($_POST['pass'])) $echo.='<font color="red">Пароль неверный!</font><br><br>';
 	
 	$echo.='Введите пароль: <form name="form" method="post"><input type="text" name="pass"><input type="submit" value="Отправить"></form>';
-	$echo.='<br>'.$_SERVER['REMOTE_ADDR'];
+	$echo.='<br>'.$_SERVER['HTTP_CF_CONNECTING_IP'];
 	$echo.='<br>'.$_SERVER['HTTP_CF_IPCOUNTRY'];
 	/* var_dump($_SERVER);*/
 }
