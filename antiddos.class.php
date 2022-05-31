@@ -20,7 +20,7 @@ class Antiddos
 	// Проверка на поискового бота
 	function isBot()
 	{
-		foreach($this->conf['search_bots'] as $s=>$name) { if( strpos($_SERVER['HTTP_USER_AGENT'], $s) !== false ) return $name; }
+		foreach($this->conf['search_bots'] as $s=>$name) { if( @strpos($_SERVER['HTTP_USER_AGENT'], $s) !== false ) return $name; }
   
 		return false;
 	}
@@ -60,6 +60,34 @@ class Antiddos
 		
 		return false;	
 	}
+	
+	
+	// Режим под атакой
+	function attackMode()
+	{
+		$file=$this->dir.'count/'.$this->ip.date("hi");
+		
+		if ($this->conf['limit_attack_mode_ban']==1) return true; // превышен
+		
+		if (!$count=file_get_contents($file))
+		{
+			file_put_contents($file, "1");
+		}
+		else
+		{
+			if ($count >= $this->conf['limit_attack_mode_ban']) 
+			{
+				unlink($file); // Удаляем последний счетчик
+				
+				$this->addBanlist('attack mode limit exceeded', $this->conf['bantime']);
+			}
+			else
+			{
+				file_put_contents($file, ($count+1) );
+			}
+		}
+	}
+
 	
 	// Проверяем, превышен ли лимит
 	function excessLimit()
