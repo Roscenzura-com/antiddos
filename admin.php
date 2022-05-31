@@ -21,13 +21,14 @@ function viewip($ipfile, $more=false)
 	$ip=substr(strrchr($ipfile, "/"), 1);
 	
 	if (!$more) return $ip;
+
 	
 	$info=explode(PHP_EOL, file_get_contents($ipfile));
 	
 	// $this->country_code, $_SERVER['REQUEST_URI'], $_SERVER['HTTP_USER_AGENT'], $reason, $t, ($t+$time);
 	
 	$info=$info+['','','','',time() ];
-	
+
 	return $ip.' - '.$info[0].' - '.$info[1].' - '.$info[2].' ('.$info[3].', '.date("Y-m-d h:i:s", $info[4]).')';
 }
 
@@ -35,10 +36,18 @@ function viewip($ipfile, $more=false)
 function listip($ipdir, $more)
 {
 	$list=[];
+	$add='';
 	$items = glob($ipdir.'/*');
 	foreach ($items as $ip)
 	{
-		if (substr($ip,-3)!='txt') $list[]=viewip($ip, $more);
+		if (substr($ip,-3)!='txt') $add=viewip($ip, $more);
+
+		if ($more==='fakebot') 
+		{
+			//echo $add;
+			if (strpos($add, 'fake bot')) $list[]=$add;
+		}
+		else $list[]=$add;
 	}
 		
 		
@@ -155,7 +164,7 @@ if ( !isset($_SESSION['pass']) || $_SESSION['pass']!=md5($config['admin']['pass'
 else
 {
 	$menu=array('banip'=>'Список забаненных IP', 'whiteip'=>'Белый список IP', 'captcha_ip'=>'Прошедшие капчу', 'cf'=>'Cloudflare правила', 'clearcount'=>'Очистить счетчик');
-	$submenu=array('banip'=>array('clearban'=>'Очистить', 'more'=>'Подробнее'), 'whiteip'=>array('clearwhite'=>'Очистить', 'more'=>'Подробнее'), 'captcha_ip'=>array('clearcaptcha_ip'=>'Очистить', 'more'=>'Подробнее'), 'cf'=>array('country'=>'Заблокированные страны', 'ip'=>'Заблокированные IP', 'ip_range'=>'Заблокированные подсети', 'geobot'=>'География ботов') );
+	$submenu=array('banip'=>array('clearban'=>'Очистить', 'more'=>'Подробнее', 'fakebot'=>'Фейковые поисковые боты'), 'whiteip'=>array('clearwhite'=>'Очистить', 'more'=>'Подробнее'), 'captcha_ip'=>array('clearcaptcha_ip'=>'Очистить', 'more'=>'Подробнее'), 'cf'=>array('country'=>'Заблокированные страны', 'ip'=>'Заблокированные IP', 'ip_range'=>'Заблокированные подсети', 'geobot'=>'География ботов') );
 	
 	if (!isset($_GET['menu'])) $_GET['menu']='';
 	
@@ -191,6 +200,7 @@ else
 	*/
 	
 	if (!isset($_GET['more'])) $_GET['more']=false; else $_GET['more']=true;
+	if (isset($_GET['fakebot'])) $_GET['more']='fakebot';
 	
 	if (!isset($_GET['menu']))
 	{
