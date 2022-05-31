@@ -1,4 +1,9 @@
 <?php
+// https://api.cloudflare.com/#firewall-rules-create-firewall-rules
+// block, challenge, js_challenge, managed_challenge, allow, log, bypass
+
+
+
 class Cloudflare
 { 
 	public $authHeader=[];
@@ -48,7 +53,7 @@ class Cloudflare
 	function response()
 	{
 		$response = curl_exec($this->handler);
-		curl_close($this->handler);
+	//	curl_close($this->handler);
 		
 		//var_dump($response);
 		
@@ -57,6 +62,14 @@ class Cloudflare
 
 		return $this->response;
 	}
+	
+	
+	
+	function close()
+	{
+		curl_close($this->handler);
+	}
+	
 	
 	
 	function auth($authemail, $authkey, $zone)
