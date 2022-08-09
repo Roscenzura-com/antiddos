@@ -33,7 +33,7 @@ if (!strpos($_SERVER['REQUEST_URI'], '?css=') && !strpos($_SERVER['REQUEST_URI']
 
 Если ддосят только главную, то можно подгружать скрипт так.
 ```
-if ($_SERVER['REQUEST_URI'], '?css='=='/')
+if ($_SERVER['REQUEST_URI'] == '/')
 {
 	include($_SERVER['DOCUMENT_ROOT'].'/[папка скрипта]/include.php');
 }
