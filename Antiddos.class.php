@@ -143,7 +143,9 @@ class Antiddos
 		
 		$file=$this->dir.'count/'.md5($id.date("ymdhi")); // Счетчик на минуту для каждой страницы с учетом браузера
 		
-		if ($this->excessLimit($file, $this->conf['limit'])) return true; else return false;
+		if ($this->excessLimit($file, $this->conf['limit'])) return true;
+		
+		return false;
 
 	}
 	
@@ -163,9 +165,9 @@ class Antiddos
 		
 		if (!file_exists($counterFile)) // Если за минуту заходов с этого пользователя не было, создаем файл
 		{
-			if (file_put_contents($counterFile, "1")) $this->counter=1;
+			if ($limit<2) return true;
 			
-			if ($limit<2) return true; else return false;
+			if (file_put_contents($counterFile, "1")) $this->counter=1;
 		}
 		else
 		{
@@ -179,9 +181,10 @@ class Antiddos
 			else
 			{
 				file_put_contents($counterFile, $this->counter);
-				return false;
 			}
 		}
+		
+		return false;
 	}
 	
 	
