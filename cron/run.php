@@ -1,68 +1,38 @@
 <?PHP
-//if (!isset($_GET['action']) || $_SERVER['HTTP_USER_AGENT']!='antiddos') exit('tuk-tuk');
+ini_set('register_argc_argv', 1);
 
-$timer=['clearcount'=>300];
+include('../config.php');
+include('../autoload.php');
 
+$admin= new Admin($config); 
 
-function delfiles($dir)
+if (isset($_GET['action']))
 {
-	if ($handle = opendir($dir)) {
-		while (false !== ($file = readdir($handle))) 
-		{ 
-			if ($file != "." && $file != "..") unlink($dir.'/'.$file);
-		}
-		closedir($handle); 
+	if ($_SERVER['HTTP_USER_AGENT']!='antiddos')
+	{
+		$admin->cronLog($_GET['action'].' ошибка, задание крон было вызвано без флага --user-agent, смотрите инструкцию на форуме ddosforum.com' ) ;
 	}
 }
-
-function clearban($dir)
+elseif (isset($argv[1]))
 {
-	$time=time();
-	
-	if ($handle = opendir($dir)) {
-		while (false !== ($file = readdir($handle))) 
-		{ 
-			if ($file != "." && $file != "..") 
-			{
-				$info=explode(PHP_EOL, file_get_contents($dir.'/'.$file));
-				
-				//var_dump($info);
-				if ($info[5]<$time)
-				{
-					echo $dir.'/'.$file.' '.$info[5].' '.$time.'<br>';
-					unlink($dir.'/'.$file);
-				}
-				else echo $dir.'/'.$file.' '.$info[5].'<br>';
-				
-				
-			}
-		}
-		closedir($handle); 
-	}
+	$_GET['action']=$argv[1];
 }
-
-
-
-$dir='../';
-
-
-$time=time();
-
-$data=unserialize(file_get_contents('timer.txt'));
-if (!isset($data[$_GET['action']])) $data[$_GET['action']]=$time;
 
 
 if ($_GET['action']=='clearcount')
 {
-	if ($time-$data['clearcount']>$timer['clearcount']) delfiles($dir.'count');
+	if ($admin->cronTimer('counter')) $r=$admin->clearList('count');
 }
-
- 
-if ($_GET['action']=='clearban')
+elseif ($_GET['action']=='clearban')
 {
-	 clearban($dir.'ban');
+	if ($admin->cronTimer('banlist')) $r=$admin->unbanByTime('ip');
 }
- 
- 
-file_put_contents('timer.txt', serialize($data) );
+else exit();
+
+$admin->cronLog($_GET['action'].' '.($r ? 'выполнен' : 'были ошибки') ) ;
+
+
+
+//file_put_contents(__DIR__.'/log.txt', $argv[0].' '.$argv[1], FILE_APPEND);
+//var_dump($r);
 ?>
