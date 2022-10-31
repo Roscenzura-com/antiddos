@@ -55,8 +55,14 @@ function viewip($ipfile, $more)
 	if ($more=='ban' || $more=='white' || $more=='captcha_ip') return $ip.' <a data-v="'.$ip.'" class="del"> </a>';
 	
 	$info=$admin->getIpData($ipfile);
+	
+	$view=$ip.' - '.$info['country'].' - '.$info['url'].' - '.$info['user_agent'].' ('.$info['reason'];
+		
+	if ($info['time']) 	$view.=', date block: '.date("Y-m-d h:i:s", $info['time']);
+	if ($info['timer']) 	$view.=', date unblock: '.date("Y-m-d h:i:s", $info['timer']);
+	$view.=') <a data-v="'.$ip.'" class="del"> </a>';
 
-	return $ip.' - '.$info['country'].' - '.$info['url'].' - '.$info['user_agent'].' ('.$info['reason'].', date block: '.date("Y-m-d h:i:s", $info['time']).', date unblock: '.date("Y-m-d h:i:s", $info['timer']).' ) <a data-v="'.$ip.'" class="del"> </a>';
+	return $view;
 }
 
 
