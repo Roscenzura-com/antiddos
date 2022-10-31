@@ -58,8 +58,19 @@ function viewip($ipfile, $more)
 	
 	$view=$ip.' - '.$info['country'].' - '.$info['url'].' - '.$info['user_agent'].' ('.$info['reason'];
 		
-	if ($info['time']) 	$view.=', date block: '.date("Y-m-d h:i:s", $info['time']);
-	if ($info['timer']) 	$view.=', date unblock: '.date("Y-m-d h:i:s", $info['timer']);
+	if ($info['time'])
+	{
+		if ($info['timer']) 
+		{
+			$view.=', date block: '.date("Y-m-d h:i:s", $info['time']);
+			$view.=', date unblock: '.date("Y-m-d h:i:s", $info['timer']);	
+		}
+		else
+		{
+			$view.=', date: '.date("Y-m-d h:i:s", $info['time']);
+		}
+	}
+	
 	$view.=') <a data-v="'.$ip.'" class="del"> </a>';
 
 	return $view;
