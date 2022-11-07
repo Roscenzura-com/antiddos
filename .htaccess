@@ -1,7 +1,0 @@
-RewriteEngine On
-
-RewriteCond %{REQUEST_URI} !cron [NC] 
-RewriteCond %{REQUEST_URI} !index.php [NC]
-RewriteCond %{REQUEST_URI} !test.php [NC]
-RewriteCond %{REQUEST_URI} !admin.php
-RewriteRule ^(.*)$ – [F,L]
