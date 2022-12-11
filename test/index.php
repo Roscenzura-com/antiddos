@@ -102,7 +102,7 @@ input[type=submit] { cursor: pointer; }
 </head>
 <body>
 <?php
-$_SERVER['HTTP_CF_CONNECTING_IP']=$_SERVER['REMOTE_ADDR']=$_SESSION['ip']; 
+$ip=$_SERVER['HTTP_CF_CONNECTING_IP']=$_SERVER['REMOTE_ADDR']=$_SESSION['ip']; 
 $_SERVER['HTTP_CF_IPCOUNTRY']=$_SESSION['country']; 
 $_SERVER['HTTP_USER_AGENT']=$_SESSION['ua']; 
  
@@ -160,49 +160,48 @@ if (isset($_GET['cloudflare']) )
 	
 	$cf->test=true;
 	$cf->savedir='../cloudflare/';
+    
+	$date=date('Y-m-d');
+	$desc='test '.$date;
+ 
 	
-	$cf->auth(); // авторизация на Cloudflare
-	
-	if (isset($_GET['target']) && isset($_GET['del']) )
+	if (isset($_GET['type']) && isset($_GET['del']) )
 	{
-		if ( $cf->delRule($_GET['del'], $_GET['target']) )
+		$cf->set('ip');
+		if ( $cf->delRule($_GET['del']) )
 		{
 			 $rule=$_GET['del'];
-			 if ($_GET['target']=='ip_range')  $rule.='.0/24';
 			 $st_cf="Правило ".$rule.' удалено';
 		}
 	}
 	elseif (isset($_GET['block_ip']))
 	{
-	 	if ($id=$cf->getId('ip'))
-		{
-					// var_dump( $_SESSION['block_method']);
-			$cf->changeRuleMode($id, $_SESSION['block_method'], 'test change block method');
-			
-			$st_cf="IP ".$cf->ip." уже был добавлен в фаерволл Cloudflare (<a href=\"index.php?cloudflare&target=ip&del=".$cf->ip."\">удалить</a>)"; 	
-		}
+	 	$type=$cf->isIp6($_SERVER['REMOTE_ADDR']) ? 'ip6' : 'ip';
 		
-		if ( $cf->addip('test', $_SESSION['block_method']) )  $st_cf="Правило для ".$cf->ip.' создано';
+		$cf->set($type);
+		if ($cf->ruleExists())
+		{
+			$cf->updateRule( $_SESSION['block_method'], 'test change rule '.date('Y-m-d') );
+			
+			$st_cf="IP ".$cf->ip." уже был добавлен в фаерволл Cloudflare (<a href=\"index.php?cloudflare&type=ip&del=".$cf->ip."\">удалить</a>)"; 	
+		}
+		elseif ( $cf->addIp($cf->ip, $desc, $_SESSION['block_method']) )  $st_cf="Правило для ".$cf->ip.' создано';
+		
 	}
 	elseif (isset($_GET['block_country']))
 	{
-		if ($id=$cf->getId('country'))
+		$cf->set('country');
+		if ($cf->ruleExists())
 		{		
-			$cf->changeRuleMode($id, $_SESSION['block_method'], 'test change block method');
-			$st_cf="Страна ".$cf->country." уже была добавлена в фаерволл Cloudflare  (<a href=\"index.php?cloudflare&target=country&del=".$cf->country."\">удалить</a>)";  		
+			$cf->updateRule( $_SESSION['block_method'], 'test change rule '.date('Y-m-d') );
+			$st_cf="Страна ".$cf->country." уже была добавлена в фаерволл Cloudflare  (<a href=\"index.php?cloudflare&type=country&del=".$cf->country."\">удалить</a>)";  		
 		}
-		if ($cf->addcountry('test', $_SESSION['block_method']) )  $st_cf="Правило для ".$cf->country.' создано'; 
-	}
-	elseif (isset($_GET['block_range']))
-	{	
-		if ($cf->getId('ip_range')) $st_cf="Диапазон ".$cf->ip3byte($cf->ip).".0/24 уже был добавлен в фаерволл Cloudflare (<a href=\"index.php?cloudflare&target=ip_range&del=".$cf->ip3byte($cf->ip)."\">удалить</a>)";  
-		if ($cf->addrange('test', $_SESSION['block_method']))  $st_cf="Правило для ".$cf->ip3byte($cf->ip).'.0/24 создано';
-		
+		if ($cf->addcountry($cf->country, $desc, $_SESSION['block_method']) )  $st_cf="Правило для ".$cf->country.' создано'; 
 	}
 	elseif (isset($_GET['block_ip_country']))
 	{
-		if ( $cf->addip('test ip and country', $_SESSION['block_method']) ) $st_cf="Правило для ".$cf->ip.' создано.';
-		if (  $cf->addcountry('test ip and country', $_SESSION['block_method']) ) $st_cf.=" Правило для ".$cf->country.' создано.';
+		if ( $cf->addIp($ip, 'test ip and country', $_SESSION['block_method']) ) $st_cf="Правило для ".$cf->ip.' создано.';
+		if (  $cf->addCountry($_SERVER['HTTP_CF_IPCOUNTRY'], 'test ip and country', $_SESSION['block_method']) ) $st_cf.=" Правило для ".$cf->country.' создано.';
 	}
 	
 	if ($cf->error && !$st_cf) $st_cf=$cf->error;
@@ -211,7 +210,7 @@ if (isset($_GET['cloudflare']) )
 	
 	if ($cf_clearance  && !$st_cf)
 	{
-		if ($cf->getId('ip')) 
+		if ($cf->ruleExists()) 
 		{
 			$st_cf='Капча пройдена';
 		}
