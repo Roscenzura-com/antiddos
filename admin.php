@@ -11,21 +11,24 @@ include('autoload.php');
 session_start();
 $admin = new Admin($config);
 
-if (isset($_GET['del']))
+if (isset($_POST['del']))
 {
-	if (!isset($_GET['typeip']))  exit();	
+	if (!isset($_POST['typeip']))  exit();	
 	
 	if ( !isset($_SESSION['pass']) || $_SESSION['pass']!=md5($config['admin']['pass']) ) 
 	{
 		echo 'Ошибка: нужно залогиниться для выполнения операции.';
 		exit();
 	}
-	
-	if ($_GET['typeip']=='cf')
+ 
+ 	$rule=urldecode($_POST['del']);
+//	echo $rule;
+ 
+	if ($_POST['typeip']=='cf')
 	{
-		$target=['cf'=>'ip', 'country'=>'country', 'ip_range'=>'ip_range'];
+		$types=['cf'=>'ip', 'country'=>'country', 'ip_range'=>'ip_range', 'ip6'=>'ip6'];
 		
-		if ( !$admin->delRule($_GET['del'], $target[ $_GET['subtype'] ] ) )
+		if ( !$admin->delRule($rule, $types[ $_POST['subtype'] ] ) )
 		{
 			// echo 'Не получается удалить запись '.$_GET['del']. ', взможно отсутствует подключение к Cloudflare. Удалите вручную правило '.$_GET['del'].' из Security->WAF->Tools.';
 			echo $admin->error;
@@ -35,9 +38,9 @@ if (isset($_GET['del']))
 	else
 	{
 		$dirAllow=array('ban', 'white', 'captcha_ip');
-		if (!in_array($_GET['typeip'], $dirAllow) ) exit ();
+		if (!in_array($_POST['typeip'], $dirAllow) ) exit ();
 		
-		$admin->del($_GET['del'], $_GET['typeip']);
+		$admin->del($rule, $_POST['typeip']);
 	}
 	
 	//if ($admin->error) echo $admin->error;
@@ -107,30 +110,51 @@ function listip($ipdir, $more)
 }
 
 
-function delrules($file)
+///
+function urlQuery($exclude, ...$args)
+{
+	$get=[];
+	foreach ($args as $var) $get[$var]=$var.'='.$_GET[$var].'&'; 
+	
+	$scriptName=str_replace('index.php','',$_SERVER['SCRIPT_NAME']);
+	
+	if ($exclude)
+	{
+		 $query=str_replace($get, '', $_SERVER['QUERY_STRING'].'&');
+	}
+	else $query=implode('', $get);
+	
+	return  $query ? ('?'.substr($query,0,-1)) : "";
+}
+
+
+function delrules($type)
 {
 	global $admin;
 	
-	$data=$admin->getRules($file);
+	//var_dump($type);
+	
+	$_SERVER['QUERY_STRING']='menu=cf&submenu='.$type;
+
+	$data=$admin->getRules($type);
 	if (empty($data)) 
 	{
-		return '<br><b>Скрипт завершил работу (удаление '.$file.')</b> <br><br>';
+		return '<br><b>Скрипт завершил работу (удаление '.$type.')</b> Для возращения в исходный раздел нажмите <a href="'.urlQuery(1, 'type', 'action').'">здесь</a> <br><br>';
 	}
+	
+	//	exit;
 	
 	$rule=key($data);
  
-	if (!$admin->delRule($rule, $file))
-	{
-		if ($admin->response['error']=='not_found') $r=['success'=>true];
-	}
+	$admin->delRule($rule, $type); 
 	
-	echo '<meta http-equiv="refresh" content="3">';
+	echo '<meta http-equiv="refresh" content="5">';
 	if ( $admin->error )
 	{
 		echo $admin->error.' / ';
 
 	}
-	else echo 'Удалена запись '.$key. '. ';
+	else echo 'Удалена запись '.$rule. '. <a href="'.urlQuery(1, 'type', 'action').'">Остановить</a>.';
 	
 	exit();
 }
@@ -180,14 +204,14 @@ if ( !isset($_SESSION['pass']) || $_SESSION['pass']!=md5($config['admin']['pass'
 }
 else
 {
-	$menu=array('ban'=>'Список забаненных IP', 'white'=>'Белый список IP', 'captcha_ip'=>'Прошедшие капчу', 'cf'=>'Cloudflare', 'cron'=>'Cron', 'logs'=>'Логи');
+	$menu=array('ban'=>'Черный список IP', 'white'=>'Белый список IP', 'captcha_ip'=>'Прошедшие капчу', 'cf'=>'Cloudflare', 'cron'=>'Cron', 'logs'=>'Логи');
 	$submenu=array(
 					'ban'=>array('ban'=>'Забаненые IP', 'more'=>'Полные данные', 'fakebot'=>'Фейковые поисковые боты', 'ban_attack_mode'=>'Забаненые в режиме Под Атакой'), 
 					'white'=>array('white'=>'IP белого списка',  'more'=>'Полные данные'), 
 					'captcha_ip'=>array('captcha_ip'=> 'IP прошедшие капчу',  'more'=>'Подробнее'),
-					'cf'=>array('cf'=>'Заблокированные IP', 'country'=>'Заблокированные страны',  'ip_range'=>'Заблокированные подсети', 'geobot'=>'География ботов'),
+					'cf'=>array('cf'=>'Заблокированные IP', 'ip6'=>'IPv6', 'country'=>'Заблокированные страны',  'ip_range'=>'Заблокированные подсети', 'geobot'=>'География ботов'),
 					'cron'=>array('cron'=>'Задания Cron'),
-					'logs'=>array('logs'=>'Лог ошибок', 'cron'=>'Лог выполнения заданий крон',  'badbot'=>'Плохие боты'), 
+					'logs'=>array('logs'=>'Лог ошибок', 'cron'=>'Лог выполнения заданий крон',  'badbot'=>'Плохие боты' ,  'curlLog'=>'Лог запросов'), 
 				  );
 	
 	if (!isset($_GET['menu'])) $_GET['menu']='';
@@ -206,37 +230,21 @@ else
 	
 	$echo.='<br>';
 	
-	if ($_GET['menu']=='cf')
-	{
-		$echo.='<form method="post"><input type="hidden" name="menu" value="cf">';
-		if (isset($_GET['country'])) $echo.='<input type="hidden" name="country" value="1"><button name="action" value="clearcountry">Удалить страны</button>';
-		elseif (isset($_GET['ip'])) $echo.='<input type="hidden" name="ip" value="1"><button name="action" value="clearip">Удалить IP</button>';
-		elseif (isset($_GET['range'])) $echo.='<input type="hidden" name="range" value="1"><button name="action" value="clearrange">Удалить подсети</button>';
-		
-		
-		$echo.='</form><br>';
-	}
+ 
 	
-	
-	
+	if (isset($_GET['action'])) $_POST=$_GET;
 	if (isset($_POST['action'])) 
 	{
 		switch ($_POST['action'] ) {
-			case "clearcountry":
-				$echo.=delrules('country');
-				break;
-			case "clearip":
-				$echo.=delrules('ip');
-				break;
-			case "clearrange":
-				$echo.=delrules('ip_range');
-				break;	
 			case "clearlist":
 				$admin->clearList($_POST['list']);
 				$echo.='<span class="red">Операция выполнена</span><br><br>';
 				break;
 			case "updatebanlist":
 				$echo.='<br>'.($admin->unbanByTime('ip') ? ('IP с истекшим сроком блокировки разбанены:<br><br>'.implode('<br>', $admin->unbanLog) ) : 'Ошибка разбана IP с истекшим сроком блокировки').'<br><br>';	
+				break;
+			case "delrules":
+				$echo.='<br>'.delrules($_POST['type']).'<br><br>';	
 				break;
 			case "clearlog":
 				$admin->clearLog($_POST['log']);
@@ -273,42 +281,65 @@ else
 
 		if ($_GET['submenu']=='country')
 		{
+			
 			$file='country';
 		}
 		elseif ($_GET['submenu']=='cf')
 		{
 			$file='ip';
-		} 
+		}
+		elseif ($_GET['submenu']=='ip6')
+		{
+			$file='ip6';
+		}  
 		elseif($_GET['submenu']=='ip_range')
 		{
 			$file='ip_range';
 		} 
 		elseif ($_GET['submenu']=='geobot')
 		{
-			$data=$admin->getGeoBots('desc');
- 
+			include(__DIR__.'/Cloudflare.class.php');
+			$cf = new Cloudflare($config['CF']);
+			
+			if (isset($_POST['addcountry']))
+			{
+				if ( !$cf->addCountry( $_POST['addcountry'], 'antiddos, geobots country, '.date("Y-m-d") ) ) $msg='Ошибка, смотрите лог'; else $msg='Страна '.$_POST['addcountry'].' добавлена в файрвол Cloudflare';
+				echo '<script>alert("'.$msg.'");</script>';
+			}
+			
+			$countries=$cf->loadData('country');
+			
+			
+ 			$data=$admin->getGeoBots('desc');
+			
+			$gb='';
+			$select='';
 			foreach ($data as $code=>$count)
 			{
-				$echo.= $code.': '.$count.'<br>';
-			}			
+				
+				$gb.= $code.': '.$count.'<br>';
+				if (!isset($countries[$code])) $select.='<option value="'.$code.'">'.$code.'</option>';
+			}	
+			
+			$echo.='<form name="addcountry" method="post"><select name="addcountry">'.$select.'</select> <input type="submit" value="Добавить страну в файрвол Cloudflare"> </form><br><br>'.$gb;	
 		}
 
 		if (isset($file))
 		{
-			$file=file_get_contents($dir.'cloudflare/'.$file.'.txt');
+			$fileData=$dir.'cloudflare/'.$file.'.data';
 			
-			if ($file)
+			if (file_exists($fileData))
 			{
-				$data=json_decode($file, true);
+				$data=json_decode( file_get_contents($fileData), true);
 					
 				$echo.='Всего: <span id="allCount">'.count($data).'</span><br><br>';
-				
-				if ($_GET['submenu']=='ip_range') $mask24='.0/24'; else $mask24='';
 					
 				foreach ($data as $rule=>$a)
 				{	
-					$echo.= '<div>Правило: <b>'.$rule.$mask24.'</b>; Способ блокировки: <b>'.$a['mode'].'</b> <a data-v="'.$rule.'" class="del"> </a></div>';
+					$echo.= '<div>Правило: <b>'.$rule.'</b>; Способ блокировки: <b>'.$a['mode'].'</b> <a data-v="'.$rule.'" class="del"> </a></div>';
 				}
+				
+				if ( $_GET['submenu']=='ip6' || $_GET['submenu']=='ip_range' || $_GET['submenu']=='country' ) $echo.='<br><hr><form method="get"><input type="hidden" name="type" value="'.$_GET['submenu'].'"><button name="action" value="delrules">Удалить все правила</button></font>';
 			}
 		}
 	}
@@ -319,7 +350,7 @@ else
 		$echo.='Очистка счетчика: раз в '.($config['cron']['counter']/60).' минут. ';
 		$echo.='<input type="hidden" name="list" value="count"><button name="action" value="clearlist">Очистить сейчас</button>';
 		
-		$echo.='<br><br>Разбан IP срок бана которых истек: раз в '.($config['cron']['banlist']/60).' минут. ';
+		if (isset($config['cron']['banlist'])) $echo.='<br><br>Разбан IP срок бана которых истек: раз в '.($config['cron']['banlist']/60).' минут. ';
 		$echo.='<button name="action" value="updatebanlist">Разбанить сейчас</button> ';	
 		$echo.='</form></div>';
 	
@@ -331,7 +362,7 @@ else
 		$log=$admin->getLog($_GET['submenu']);
 		if ($log)
 		{ 
-			$echo.='<div style="padding:5px; overflow:scroll;  height:600px; max-width:700px;border: #ccc 1px solid;" >'.$admin->getLog($_GET['submenu']).'</div>';
+			$echo.='<div style="padding:5px; overflow:scroll;  height:600px; max-width:100%;border: #ccc 1px solid;" >'.$admin->getLog($_GET['submenu']).'</div>';
 			$echo.='<br><div class="bactions" ><form method="post">';
 			$echo.='<input type="hidden" name="log" value="'.$_GET['submenu'].'"><button name="action" value="clearlog">Очистить лог</button> ';
 			$echo.='</form></div>';
@@ -342,10 +373,8 @@ else
 		}
 		
 	}
-	
-	
-	
-	
+ 
+ 	//
 	if (isset($list))
 	{
 		$filterCancel='';
@@ -377,7 +406,7 @@ else
 		$echo.='</form></div>';
 	}
 }
-?><!DOCTYPE html><html><head><meta charset="utf-8" /><title>Админка управления скриптом Antiddos</title>  
+?><!DOCTYPE html><html><head><meta charset="utf-8" /><title>Админка управления скриптом Antiddos</title>
 <style type="text/css">
 body{  }
 .headmenu { font-size:14pt; }
@@ -446,12 +475,13 @@ $( ".del" ).click(function(e) {
  
   e.preventDefault();
   
-  var send={ del: $(this).attr('data-v'), typeip: "<?=$_GET['menu']?>", subtype: "<?=$_GET['submenu']?>"  };
+  var value=encodeURIComponent($(this).attr('data-v'));
+  var send={ del: value, typeip: "<?=$_GET['menu']?>", subtype: "<?=$_GET['submenu']?>"  };
 
   $(this).parent().hide(200);
 
 	
-  $.get( "admin.php",  send,  function( data ) {
+  $.post( "admin.php",  send,  function( data ) {
  
 	 if (data) alert( data );
 	 else  console.log(send.del + ' удален');
