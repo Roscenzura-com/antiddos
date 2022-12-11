@@ -1,66 +1,103 @@
 <?php
 //namespace Antiddos;
 
-// https://api.cloudflare.com/#firewall-rules-create-firewall-rules
-//  Create firewall rules
+// https://api.cloudflare.com/#ip-access-rules-for-a-user-create-an-ip-access-rule
 // https://developers.cloudflare.com/firewall/cf-firewall-rules/actions 
 // block, challenge, js_challenge, managed_challenge, allow, log, bypass 
 
 
 class Cloudflare
 { 
-	public $authHeader=[];
-	public $urlzone	='';
-	public $urluser='';	
-	public $handler='';
-	private $id=['ip'=>0, 'ip_range'=>0, 'country'=>0]; // id записи в firewall Cloudflare
 	public $ip;
-	public $country='';
-	public $ip_range='';
+	public $country;
+	public $rule;
 	public $response=[];
-	public $result=[];	
-	public $savedir='';
-	private $conf;
-
-	private $rules=['ip'=>false, 'ip_range'=>false, 'country'=>false];
-	private $rulesById=[];
+	public $dir='';
 	public $countries=[]; // Страны целевого трафика	
 	public $error='';
-	private $errorsFile;
-	
 	public $test=false;
 	public $testLog=[];
 	
+	
+	private $urlrules='';
+	private $urluser='';
+	private $authHeader;
+	
+	private $type;
+	private $target;	
+	private $handler='';
+	private $rules=[]; 
+	private $curlSet=[];
+	private $errorsFile;
+	private $errorResponse;
+ 
  
 	function __construct($config)
 	{
 		$this->conf=$config;
 			
 		$this->countries=$config['countries'];
-		
-		$this->handler= curl_init();
-		
-		$this->savedir=__DIR__.'/cloudflare/';
+
+		$this->dir=__DIR__.'/cloudflare/';
 		
 		$this->errorsFile=__DIR__.'/log/errors.txt';
 		
-		$this->ip=$_SERVER['REMOTE_ADDR'];
+		$this->curlLogFile=__DIR__.'/log/curlLog.txt';
 		
+		$this->ip=$_SERVER['REMOTE_ADDR'];
 		$this->country=$_SERVER['HTTP_CF_IPCOUNTRY'] ?: '';	
+			  
+		$this->urluser="https://api.cloudflare.com/client/v4/user/";
+		$this->urlrules="https://api.cloudflare.com/client/v4/zones/".$this->conf['zone'].'/firewall/access_rules/rules';
+		
+		$this->authHeader= array(
+			 'X-Auth-Email: '.$this->conf['email'],
+			 'X-Auth-Key: '.$this->conf['key'],
+			 'Content-Type: application/json'
+		);
+	}
+	
+	//
+	function set($type, $rule=false, $target=false)
+	{
+		$this->type=$type;
+		$this->target=$target ?: $this->target($type);
+		
+		if (!$this->rule=$rule)
+		{
+			if ($this->target=='ip_range') $this->rule=$this->ipMask24($this->ip); else $this->rule=$this->{$this->target};	
+		}
+		
+		$this->loadLocalRules($type);
+	}
+	
+	
+	//
+	function target($type)
+	{
+		return $this->conf['target'][$type];
 	}
  
 	
-	function checkCountry() 
+	//
+	function isIp6($ip=false)
 	{
-		if ( !$this->country || empty($this->countries) ) return true; 
+		return filter_var( ($ip ?: $this->rule), FILTER_VALIDATE_IP, FILTER_FLAG_IPV6);
+	}
+ 
+	
+	function checkCountry($country=false) 
+	{
+		$country=$country ?: $this->country;
+		if ( !$country || empty($this->countries) ) return true; 
 		
-		if (isset($this->countries[$this->country]) && $this->countries[$this->country]) return true; else return false;
+		if (isset($this->countries[$country]) && $this->countries[$country]) return true; else return false;
 	}
  
  
 	function counterGeoBots()
 	{
-		$file=__DIR__.'/countries/'.$this->country;
+		$file=$this->dir.'countries/'.$this->country;
 		
 		if (!file_exists($file)) $c=1; else $c=file_get_contents($file);
 		if (!is_numeric($c)) $c=1;
@@ -71,65 +108,126 @@ class Cloudflare
 	
 	function response()
 	{
-		$response = curl_exec($this->handler);
+		$handler=curl_init();
+			
+		$curlSet=[CURLOPT_RETURNTRANSFER=>1, CURLOPT_HTTPHEADER=>$this->authHeader]+$this->curlSet;
+		
+	//	 print_r($curlSet);
+		curl_setopt_array($handler, $curlSet);		
+		$response = curl_exec($handler);
 
 		$this->response=json_decode($response,true);
+			
+	//	print_r($this->response);
 		
-		if ($this->test) $this->testLog($this->response); 
+		$this->curlSet=[];
+	
+		curl_close($handler);
 
 		return $this->response;
 	}
 	
 	
-	
-	function close()
+	function curlSet(...$args)
 	{
-		curl_close($this->handler);
-		
-		/*if ($this->test) file_put_contents($this->savedir.'test.txt', implode(PHP_EOL.'----------------'.PHP_EOL, $this->testLog), FILE_APPEND);*/
-	}
-	
-
-
-	function auth()
-	{		
-		if (!$this->conf['email']) return false;
-		
-		$this->authHeader= array(
-			 'X-Auth-Email: '.$this->conf['email'],
-			 'X-Auth-Key: '.$this->conf['key'],
-			 'Content-Type: application/json'
-		  );
-		  
-		$this->urlzone="https://api.cloudflare.com/client/v4/zones/".$this->conf['zone'].'/';
-		$this->urluser="https://api.cloudflare.com/client/v4/user/";
- 
-		curl_setopt($this->handler, CURLOPT_RETURNTRANSFER, 1);
-		curl_setopt($this->handler, CURLOPT_HTTPHEADER, $this->authHeader);
-		
-		return true;
+		if (!is_array($args[0])) 
+		{
+			$this->curlSet[$args[0]]=$args[1];
+		}
+		else
+		{
+			$this->curlSet+=$args[0];
+		}
 	}
 	
 	
 	function send($data)
+	{	 
+		$this->curlSet(CURLOPT_POSTFIELDS, json_encode($data));
+	}
+	
+
+	function auth()
+	{		
+		if (!$this->conf['email']) return false; else return true;
+	}
+	
+
+	//
+	function ruleExists($rule=false)
 	{
-		curl_setopt($this->handler, CURLOPT_POSTFIELDS, json_encode($data) );
+		if (!$this->type) return $this->error('Не задан тип правила');
+		$rule=$rule ?: $this->rule; 
+
+		return isset($this->rules[$this->type][$rule]);
+	}
+	
+		
+	//
+	function getRule($rule=false, $value=false)
+	{
+		$rule=$rule ?: $this->rule; 
+		if (!$this->ruleExists($rule)) return false;
+
+		if (!$value) return $this->rules[$this->type][$rule]; else return $this->rules[$this->type][$rule][$value];
 	}
 	
 	
-	function changeRuleMode($id, $mode, $note=false)
+	//
+	function getRuleId($rule=false)
 	{
-		if (isset($this->rulesById[$id]))
-		{
-			$rule=$this->rulesById[$id];
-			$cmode=$rule['mode'];
-			  
-			if ($mode==$cmode) return true;
-		}
-		else return false;		
+		return $this->getRule($rule, 'id');
+	}
+	
+	//
+	function getRuleMode($rule=false)
+	{
+		return $this->getRule($rule, 'mode');
+	}
+	
+	
+	//	
+	function addRule($rule=false, $notes=false, $mode=false, $type=false)
+	{	
+		if ($type) $this->set($type, $rule); 
+			
+		if (!$type=$this->type) return $this->error('Не задан тип правила');
 		
-		curl_setopt($this->handler, CURLOPT_URL, $this->urlzone.'firewall/access_rules/rules/'.$id);	
-		curl_setopt($this->handler, CURLOPT_CUSTOMREQUEST, 'PATCH');
+		$this->curlSet(CURLOPT_URL, $this->urlrules);
+ 
+		$mode=$mode ?: $this->blockMethod();
+		$notes=$notes ?: $this->getNotes();
+		$rule=$rule ?: $this->rule; 
+
+		$data=['mode'=>$mode, 'notes'=>$notes, 'configuration'=>['target'=>$this->target, 'value'=>$rule]];
+
+		$this->send($data);
+		
+		if ( $r=$this->response() and isset($r['result']['id'])  )
+		{
+			$this->addLocalRule($rule, $r['result']['id'], $mode);
+			
+			return true;
+		}
+		else
+		{
+			return $this->error('Ошибка добавления правила для '.$rule);
+		}
+	}
+		
+	
+	//
+	function updateRule($mode, $note=false)
+	{
+		if (!$rule=$this->getRule()) return $this->error('Правила '.$this->rule['value'].' нет в списке правил '.$type);
+
+		if ($mode==$rule['mode'] and !$note)
+		{
+		 	if ($this->test) $this->testLog('Без изменений: режим блокировки '.$mode.' уже установлен для правила '.$this->rule['value']);
+			return true;		
+		}	
+					
+		$this->curlSet( [CURLOPT_URL => $this->urlrules.'/'.$rule['id'], CURLOPT_CUSTOMREQUEST=>'PATCH'] );
 				
 		$data=['mode'=>$mode];
 		if($note) $data['notes']=$note;
@@ -138,182 +236,101 @@ class Cloudflare
 
 		if ( $this->isSuccess( $this->response() ) )
 		{
-			$this->save( $rule['target'], $rule['value'], $mode);
+			$this->updateLocalRule($mode);
 			return true;
 		}
 		else
 		{
-			$this->error='Ошибка изменения метода блокировки для правила '.$rule['value'].': '.$this->getError();
-			$this->logError(true);
-			
-			return false;
+			return $this->error('Ошибка изменения метода блокировки для правила '.$rule['value']);
 		}
 	}
 	
 	
-	function addrule($add, $notes, $mode)
-	{
-		curl_setopt($this->handler, CURLOPT_URL, $this->urlzone.'firewall/access_rules/rules');	
+	//
+	function delRule($rule=false) 
+	{  
+		if (!$type=$this->type) return $this->error('Не задан тип правила');
 		
-		$data=['mode'=>$mode, 'notes'=>$notes, 'configuration'=>$add];
-
-		$this->send($data);
-		$r=$this->response();
+		$rule=$rule ?: $this->rule; 
 		
-		if (isset($r['result']['id'])  )
+		if ($id=$this->getRuleId($rule))
 		{
-			$this->result=$r['result'];
-			$this->save( $add['target'], $add['value'], $mode, $r['result']['id'] );
-			return true;
+			$this->curlSet([CURLOPT_URL=>$this->urlrules.'/'.$id, CURLOPT_CUSTOMREQUEST=>'DELETE']);
+			$this->delLocalRule($rule);
 		}
 		else
 		{
-			$this->error='Ошибка добавления правила для '.$add['value'].': '.$this->getError();
-			$this->logError(true);
-			return false;
-		}
-	}
-	
-	
-	function delRule(...$params) // id or rule
-	{
-		/*if (!isset($params[1]))
-		{
-			$id=$params[0];
-			$rule=$this->rulesById[$id];
-			$target=$rule['target'];
-			$value=$rule['value'];
-		}*/
-		
-		$target=$params[1];
-		$rule=$params[0];
-		$rules=$this->getRules($target);
-
-		if (isset($rules[$rule]['id']))
-		{
-			curl_setopt($this->handler, CURLOPT_URL, $this->urlzone.'firewall/access_rules/rules/'.$rules[$rule]['id'] );	
-			curl_setopt($this->handler, CURLOPT_CUSTOMREQUEST, 'DELETE');
-			
-			unset($this->rules[$target][$rule]);   
-			$this->saveRules($target);
-		}
-		else
-		{
-			$this->error='Запись '.$rule.' уже была удалена';
-			$this->logError();	
-			
-			return false;
+			return $this->error('Правила '.$rule.' нет в локальном хранилище');
 		}
 		
-		
-		//$r=( $this->response() ?: ['error'=>true] ) + [ 'error'=>false, 'success'=>false ];
-
 		if ( $this->isSuccess( $this->response() ) )
 		{	
 			return true;
 		}	
 		else
 		{	
-			$this->error='Ошибка удаления записи firewall: '.$this->getError();
-			$this->logError(true);
-			
-			return false;
+			return $this->error('Ошибка удаления правила firewall');
 		}
 	}
-	
-	
+ 
+ 
 	//
-	function delRuleIP($rule)
+	function blockMethod($type=false)
 	{
-		return $this->delRule($rule, 'ip');
+		$type=$type ?: $this->type;
+		return ($this->conf['block_method'][$type] ?: 'block');
 	}
 	
-	//
-	function delRuleRange($rule)
-	{
-		return $this->delRule($rule, 'ip_range');
-	}
-	
-	//
-	function delRuleCountry($rule)
-	{
-		return $this->delRule($rule, 'country');
-	}	
-	
-	//
-	function delRuleById($id)
-	{
-		if (!isset($this->rulesById[$id])) return false;
-		
-		return $this->delRule($this->rulesById[$id]['value'], $this->rulesById[$id]['target']);
-	}
-	
-	//
-	function blockMethod($type)
-	{
-		return ($this->conf['block_method'][$type] ?: 'block' );
-	
-	}
-
-	//
-	function getRuleId($value, $target)
-	{
-		$rules=$this->getRules($target);
-		
-		if (!isset($rules[$value])) return false; else return $rules[$value]['id'];
-	}
 	
 	// Добавляем IP 
-	function addip($notes='', $mode='block')   
-	{
-		if (!$notes) $notes=$this->country.' '.date("Y-m-d");
-		
-		return $this->addrule(['target'=>'ip', 'value'=>$this->ip], $notes, $mode); 
+	function addIp($ip=false, $notes=false, $mode=false)   
+	{	 
+		return $this->addRule( $ip, $notes, $mode, 'ip' ); 
 	}
 	
 	
 	// Добавляем страну
-	function addcountry($notes='', $mode='managed_challenge')   
+	function addCountry($country=false, $notes=false, $mode=false)   
 	{
-		if ($this->checkCountry())
+		$country=$country ?: $this->country;
+				
+		if ($this->checkCountry($country))
 		{
-			$this->logError();
-			$this->error='Страна '.$this->country.' из белого списка, нельзя добавить в firewall';
-			   
-			return false; 
-		}
-		
-		if (!$notes) $notes='antiddos block country '.date("Y-m-d");
- 	
-		return $this->addrule(['target'=>'country', 'value'=>$this->country], $notes, $mode); 
+			return $this->error('Страна '.$country.' из белого списка, нельзя добавить в firewall');
+		}	
+
+		return $this->addRule($country, $notes, $mode, 'country'); 
 	}
-	
+
 
 	// Добавляем диапазон
-	function addrange($notes='', $mode='managed_challenge')   
+	function addRange($range, $notes=false, $mode=false)   
 	{
-		if (!$notes) $notes=$this->country.' '.date("Y-m-d");
-		
-		return $this->addrule([ 'target' => 'ip_range', 'value' => $this->ip3byte($this->ip).'.0/24' ], $notes, $mode); 
+		return $this->addRule($range, $notes, $mode, 'ip_range'); 
 	}
 	
 	
 	// 
-	function ip3byte($ip)
+	function addMask24($ip=false, $notes=false, $mode=false)   
 	{
-		$ip=explode('.', $ip);
-		
-		return  $ip[0].'.'.$ip[1].'.'.$ip[2]; 		
+		return $this->addRule( $this->ipMask24($ip), $notes, $mode, 'ip_range' ); 
 	}
-		
-	/*
-	function mask24($ip)   
+	
+	
+	//
+	function setCaptcha($rule, $notes='')
+	{	
+		return $this->addrule($rule, $notes, 'challenge'); 
+	}
+	
+	
+	//
+	function ipMask24($ip=false)   
 	{
-		$ip=explode('.', $ip);
+		$ip=explode('.', ($ip ?: $this->ip) );
 		
 		return  $ip[0].'.'.$ip[1].'.'.$ip[2].'.0/24'; 
 	}
-	*/
 	
 	
 	// IP прошел каптчу
@@ -323,73 +340,47 @@ class Cloudflare
 	} 
 	
 	
-	///
-	function getRules($target)
-	{	
-		if ($this->rules[$target]===false)
-		{
-			$file=$this->savedir.$target.'.txt';
-			$c=file_get_contents($file);
-			
-			if (!$c) $this->rules[$target]=[]; else $this->rules[$target]=json_decode($c,true);
-		}
-		
-		return $this->rules[$target];
-	}
-	
-
 	//
-	function save($target, $value, $mode, $id=false)
-	{		
-		$arr=$this->getRules($target);
-		
-		if ($target=='ip_range') $value=$this->ip3byte($value);
-		
-		//if (isset($arr[$value])) $arr[$value]['mode']=$mode; 
-		if (!$id) $arr[$value]['mode']=$mode; 
-		else 
-		{
-			$arr["$value"]=['id'=>$id, 'mode'=>$mode];	
-		}
-		
-		$this->rules[$target]=$arr;
-		$this->saveRules($target);
-	}
-	
-	
-	//
-	function saveRules($target)
-	{			
-		file_put_contents($this->savedir.$target.'.txt', json_encode($this->rules[$target]) ); 
-	}
-	
-	
-	//
-	function getId($target, $value=false)
+	function getNotes($type=false)
 	{
-		$arr=$this->getRules($target);
+		$type=$type ?: $this->type;
+		$notes=$this->conf['notes'];
 		
-		if (!$value)
-		{
-		 	if ($this->id[$target]) return $this->id[$target];
-			
-			if ($target=='ip_range' ) $value=$this->ip3byte($this->ip); else $value=$this->{$target};
-		}	
-	
-		if (!isset($arr[$value])) return false; 
+		$find=[ '%time%', '%country%', '%url%', '%browser%', '%ip%' ];
+		$replace=[ date("Y-m-d H:i:s"), $this->country, $_SERVER['REQUEST_URI'], $_SERVER['HTTP_USER_AGENT'], $this->ip ];
+
+		if (!isset($notes[$type])) $type='default';
 		
-		$rule=$arr[$value];
-		
-		$this->rulesById[$rule['id']]=['target'=>$target, 'mode'=>$rule['mode'], 'value'=>$value ];
-		
-		return $this->id[$target]=$rule['id'];
+		$notes=str_replace( $find, $replace, $notes[$type] );
+ 
+		return $notes;
 	}
 	
 	
 	//
-	function logError($response=false)
+	function getRules($type=false)
 	{	
-		file_put_contents($this->errorsFile, $this->error.($response ? PHP_EOL.print_r($this->response,true) : PHP_EOL).'----------------'.PHP_EOL, FILE_APPEND);
+		if (!isset($this->rules[$type]) ) $this->loadLocalRules($type);
+		
+		return $this->rules[$type];
+	}
+	
+	//
+	function loadData($type)
+	{
+		$type=$type ?: $this->type;
+		$fileData=$this->dir.$type.'.data';
+
+		if (!file_exists($fileData)) return [];
+		
+		if ($c=file_get_contents($fileData)) return json_decode($c,true); else return [];
+	}
+	
+	
+	//
+	function loadLocalRules($type=false)
+	{	
+		$this->rules[$type]=$this->loadData($type);
 	}
 	
 	
@@ -403,22 +394,106 @@ class Cloudflare
 	
 	
 	//
-	function getError()
-	{ 
-		if (isset($this->response['errors'][0]['message']))
-		{
-			$error=str_replace(['firewallaccessrules.api.duplicate_of_existing', 'firewallaccessrules.api.not_found'], ['правило уже существует', 'правила нет в firewall'], $this->response['errors'][0]['message'] );
-		}
-		else $error='неизвестная ошибка';
- 	
-		return $error;
+	function updateLocalRule($mode)
+	{		
+		$this->rules[$this->type][$this->rule]['mode']=$mode;
 	}
 	
 	
 	//
-	function testLog($value)
+	function addLocalRule($rule, $id, $mode)
+	{		
+		$this->rules[$this->type][$rule]=['id'=>$id, 'mode'=>$mode];
+	}
+
+
+	//
+	function delLocalRule($rule)
+	{
+		$rule=$rule ?: $this->rule;
+		unset($this->rules[$this->type][$rule]);
+	}
+	
+	
+	//
+	function saveRules($type=false, $data=false)
+	{			
+		if (!$type)
+		{
+			foreach ($this->rules as $type => $data) $this->saveRules($type, $data);
+		}
+		
+		file_put_contents($this->dir.$type.'.data', json_encode($data) ); 
+		
+		unset($this->rules[$type]);
+	}
+	
+	//
+	function logError($error)
 	{	
-		$this->testLog[]=print_r($value,true);
+		file_put_contents($this->errorsFile, $error.($this->errorResponse ? PHP_EOL.$this->errorResponse : PHP_EOL).'----------------'.PHP_EOL, FILE_APPEND);
+	}
+	
+	
+	//
+	function error($error, $stop=false)
+	{			
+		if (!empty($this->response['errors'])) $error.=': '.$this->getError();
+
+		$this->logError($error);
+		
+		if ($stop) exit($error);
+		
+		$this->error=$this->errorResponse='';
+		
+		return false;
+	}	
+	
+	
+	//
+	function getError()
+	{ 
+		if ($this->errorResponse) return $this->errorResponse;
+		
+		if (isset($this->response['errors'][0]['message']))
+		{
+			$msg=$this->response['errors'][0]['message'];
+			$error=str_replace(
+								['firewallaccessrules.api.duplicate_of_existing', 'firewallaccessrules.api.not_found', 'Please wait and consider throttling your request speed'], 
+								['правило уже существует', 'правила нет в firewall', 'Слишком частые запросы к API Cloudflare'], 
+				   				$msg 
+							  );
+			
+			if ($msg==$error) $this->errorResponse=print_r($this->response,true); else return $error;
+		}
+
+		return 'неизвестная ошибка';
+	}
+	
+	
+	//
+	function curlLog($rule)
+	{	
+		$date=', '.date("Y-m-d H:i:s");
+		$rule_country='правила '.$rule;
+		if ($this->isSuccess())
+		{
+			$log='Запрос выполнен для '.$rule_country.$date;
+		}
+		else 
+		{
+			$log='Запрос не выполнен для '.$rule_country.', '.$this->getError().$date;
+		
+		} 
+		
+		file_put_contents($this->curlLogFile, $log.PHP_EOL, FILE_APPEND);
+	}
+	
+	
+	//
+	function __destruct()
+	{
+		$this->saveRules();
 	}
 }
 ?>
