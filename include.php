@@ -1,6 +1,9 @@
 <?php
 // Ветка поддержки скрипта: http://ddosforum.com/threads/602/
- 
+/*
+$memory=memory_get_usage();
+$start = microtime(true);
+*/
 $url=$_SERVER['REQUEST_URI']; // Если ддосят только главную поставьте $url='/'; для экономии ресурсов. 
 
 //var_dump($url);
@@ -30,14 +33,21 @@ if (is_file(__DIR__.'/ban/'.$_SERVER['REMOTE_ADDR'])) // ip в бане
 	include(__DIR__.'/Cloudflare.class.php');
 	
 	$cf = new Cloudflare($config['CF']);
+	
+	$type=$cf->isIp6() ? 'ip6' : 'ip';
+	$cf->set($type);
 
 	if (!is_file(__DIR__.'/captcha_ip/'.$cf->ip)) // Капчу еще не проходили, то есть забанены первый раз	
 	{		
-		if ($cf_clearance && $cf->getId('ip')) // Кука Cloudflare после прохождения каптчи 
+		if ($cf->ruleExists()) 
 		{		
-			$cf->captchaTrue(); // Удаляет IP из бана
+			if ($cf_clearance) // Кука Cloudflare после прохождения каптчи 
+			{
+				$cf->captchaTrue(); // Удаляет IP из бана
+				//echo 'captchaTrue';
 			
-			$status='captcha_true';	
+				$status='captcha_true';	
+			}
 		}
 		else
 		{
@@ -45,20 +55,21 @@ if (is_file(__DIR__.'/ban/'.$_SERVER['REMOTE_ADDR'])) // ip в бане
 			{
 				exit ('Не установлены настройки подключения к Cloudflare.'); 
 			}
-			
-			$date=date('Y-m-d');
-			$desc='antiddos 2.0 '.$cf->country; // комментарий для Cloudflare
-						
-			$r=$cf->addip($desc.' '.$date, $cf->blockMethod('ip') );  
+								
+			$cf->addIp();  
 			
 			$cf->counterGeoBots(); // Счетчик по странам, папка countries, в админке: Cloudflare->География ботов
 	
+			$cf->set('country');
 			if ( !$cf->checkCountry() ) // Страна не целевого трафика
 			{
-				if ( !$cf->addcountry($desc.' block country '.$date,  $cf->blockMethod('country') ) )
+				if (!$cf->ruleExists()) 
 				{
-					$r=$cf->addrange($desc.' block range '.$date,  $cf->blockMethod('ip_range') ); // если не получилось добавить страну, баним диапазон  
-				}
+					if ( !$cf->addCountry() )
+					{
+						$cf->addMask24(); 
+					}
+				}	
 			}
 		}	
 	}
@@ -69,23 +80,18 @@ if (is_file(__DIR__.'/ban/'.$_SERVER['REMOTE_ADDR'])) // ip в бане
 			exit ('Не установлены настройки подключения к Cloudflare.'); 
 		}
 	
-		if ($id=$cf->getId('ip')) // Проверяем есть ли такой IP в правилах
+		if ($id=$cf->ruleExists()) // Проверяем есть ли такой IP в правилах
 		{
 			// Баним жестко без проверки на каптчу, потому что пользователь уже проходил каптчу и снова превысил лимит
-			$r=$cf->changeRuleMode($id, "block", 'antiddos 2.0 change rule '.date('Y-m-d') ); // .date('Y-m-d')	
-
-			if (!$r) 		 
-			{
-				$cf->delRuleById($id);
-			}
+			$r=$cf->updateRule( "block", 'antiddos 2.0 change rule '.date('Y-m-d') ); // .date('Y-m-d')	
 		}
 		else
 		{
-			$r=$cf->addip('antiddos 2.0: user passed the captcha and exceeded the limit of requests '.$cf->country.' '.date('Y-m-d'), 'block'); // 
+			$cf->addIp();
 		}
 	}
 	
-	$cf->close();
+	if ($cf->error) echo $cf->error.'<br>';
 	
 	if ($status=='ban')
 	{
@@ -148,5 +154,3 @@ elseif ( $_SERVER['REQUEST_URI']==$url  )
 		
 //	echo $antiddos->counter;
 }
-	 
-// exit($status);
