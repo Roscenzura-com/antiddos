@@ -72,7 +72,7 @@ class Antiddos
 
 		$save=[$this->country_code, $_SERVER['REQUEST_URI'], $_SERVER['HTTP_USER_AGENT'], $reason, $t, ($time ? ($t+$time) : '') ];
 		
-		return file_put_contents($this->dir.$list.'/'.$this->ip, implode(PHP_EOL, $save) );
+		if ( file_put_contents($this->dir.$list.'/'.$this->ip, implode(PHP_EOL, $save) ) ) return true; else $this->logError($file_count);
 	}
 	
 	
@@ -93,23 +93,47 @@ class Antiddos
 		
 		$file_count=$this->dir.'count_attack.txt';
 		
-		/*$h=date("h");
-		$i=date("i");
-		
-		$i+=$i % 2;*/
-		
 		$ctime=date("h.i");
-
-		if (!$str=@file_get_contents($file_count)) $str=':';
-		list($time, $count)=explode(':',$str);
-	
-		if ($ctime!=$time) 
-		{
-			$count='1'; // Сбрасываем счетчик
-		}
-		else $count+=1;
+		$ctimestamp=time();
+ 
+		if (!$str=@file_get_contents($file_count)) $str='::';
+		list($time, $count, $timer)=explode(':',$str);
 		
-		if (!file_put_contents($file_count, $ctime.':'.$count)) exit('Установите права на запись для файла '.$file_count);
+		if ($timer)
+		{
+			if ($ctimestamp<$timer) 
+			{
+				$count+=1;	
+			}
+			else
+			{
+				$timer='';
+				$count=round ( ($count/$this->conf['attack_mode_timer'])*60 );
+				
+				/*var_dump('count: '.$count);*/
+			}
+		}
+	
+		if (!$timer)
+		{
+			if ($ctime!=$time) 
+			{
+				$count='1'; // Сбрасываем счетчик
+			}
+			else
+			{
+				$count++;
+				if ($this->conf['attack_mode_timer'] and $count>$this->conf['limit_attack_mode'])
+				{
+					$timer=$ctimestamp+$this->conf['attack_mode_timer'];
+				}
+			}
+		}
+ 
+		
+		if (!file_put_contents($file_count, $ctime.':'.$count.':'.$timer)) $this->logError($file_count);
+		
+		/*var_dump('counter: '.$ctime.':'.$count.':'.$timer, time());*/
 
 		return $this->countAll=$count;
 	}
@@ -130,8 +154,6 @@ class Antiddos
 	function excessLimitAttackMode()
 	{		
 		$file=$this->dir.'count/'.$this->ip.date("hi");
-
-		if ($this->conf['limit_attack_mode_ban']==1) return true; // превышен
 		
 		if ($this->excessLimit($file, $this->conf['limit_attack_mode_ban'])) return true; else return false;
 	}
@@ -163,11 +185,11 @@ class Antiddos
 	{
 		if ($this->counter) return $this->counter;
 		
+		if ($limit<2) return true;
+		
 		if (!file_exists($counterFile)) // Если за минуту заходов с этого пользователя не было, создаем файл
-		{
-			if ($limit<2) return true;
-			
-			if (file_put_contents($counterFile, "1")) $this->counter=1;
+		{	
+			if (file_put_contents($counterFile, "1")) $this->counter=1; else $this->logError($counterFile);
 		}
 		else
 		{
@@ -194,6 +216,7 @@ class Antiddos
 		return $this->addip('ban', $desc, ($time ?: $this->conf['bantime']) );
 	}
 	
+	//
 	function addWhitelist($desc, $time=0)
 	{
 		return $this->addip('white', $desc );
@@ -202,7 +225,13 @@ class Antiddos
 	// Переместить ip из одного списка в другой
 	function moveip($ip, $list1, $list2)
 	{
-	    if (!rename($this->dir.$list1.'/'.$ip, $this->dir.$list2.'/'.$ip)) unlink($this->dir.$list1.'/'.$ip);
+	    if (!rename($this->dir.$list1.'/'.$ip, $this->dir.$list2.'/'.$ip)) @unlink($this->dir.$list1.'/'.$ip);
+	}
+	
+	//
+	function logError($file)
+	{
+		file_put_contents($this->dir.'log/errors.txt', 'Ошибка прав доступа к файлу '.$file.PHP_EOL.'----------------'.PHP_EOL, FILE_APPEND);
 	}
 	
 	//
@@ -212,6 +241,5 @@ class Antiddos
 		
 		file_put_contents($this->dir.'log/'.$name.'.txt', $str.PHP_EOL, FILE_APPEND); 
 	}
-
 }
 ?>
