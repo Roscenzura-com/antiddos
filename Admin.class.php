@@ -6,14 +6,16 @@
 
 class Admin
 { 
-	private $conf;
 	public $maxСycles=10000; 
+	public $unbanLog=[];
+	public $error='';
+	
+	private $conf;
 	private $container=[];
 	private $cloudflare;
 	private $response;
-	
-	public $unbanLog=[];
-	public $error='';
+	private $countResponse=0;
+	private $maxCountResponse=5;
 	
 	function __construct($conf)
 	{
@@ -56,8 +58,6 @@ class Admin
 			{ 
 				if ($file != "." && $file != "..") $r=unlink($dir.'/'.$file);
 				
-				// echo $dir.'/'.$file.'<br>';
-				
 				if ($cycle==$this->maxСycles) break;
 				$cycle++;
 			}
@@ -93,14 +93,15 @@ class Admin
 	
 	
 	//
-	function delRule($rule, $type=false)
+	function delRule($rule, $type, $target=false)
 	{
- 		if (!$type) $type=$this->getType($rule);
-		
 		$CF=$this->load('Cloudflare', $this->conf['CF']);
-		$CF->auth();
 		
-		if (!$CF->delRule($rule, $type)) 
+		$CF->set($type, $rule, $target);
+		
+		if (!$CF->getRule($rule)) return false; else $this->countResponse++;
+		
+		if (!$CF->delRule($rule)) 
 		{
 			$this->error=$CF->error;
 			$this->response=$CF->response;
@@ -110,22 +111,13 @@ class Admin
 		
 		return true;
 	}
-	
-	
-	//
-	function getType($value)
-	{		
-		if (filter_var($value, FILTER_VALIDATE_IP) || filter_var($value.'.0', FILTER_VALIDATE_IP)) return 'ip';
-		elseif (strlen($value)==2) return 'country';
-		else return false;
-	}
-	
+ 
 	
 	//
 	function getGeoBots($sort='asc')
 	{
 		$list=[];
-		$items = glob($this->dir.'countries/*');
+		$items = glob($this->dir.'cloudflare/countries/*');
 		foreach ($items as $codeFile)
 		{
 			if (substr($codeFile,-3)!='txt')
@@ -149,9 +141,7 @@ class Admin
 		
 		return $CF->getRules($list);
 	}
-	
  
-	
 	
 	//
 	function cronTimer($action)
@@ -186,6 +176,8 @@ class Admin
 		$items = glob($this->dir.'ban/*');
 		foreach ($items as $ipfile)
 		{
+			if ($this->maxCountResponse < $this->countResponse) break;
+			
 			$ip=basename($ipfile);
 
 			if ( filter_var($ip, FILTER_VALIDATE_IP) )
