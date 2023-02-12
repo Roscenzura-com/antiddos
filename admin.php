@@ -273,6 +273,9 @@ else
 	}
 	elseif ($_GET['menu']=='cf')
 	{
+		include(__DIR__.'/Cloudflare.class.php');
+		$cf = new Cloudflare($config['CF']);
+		
 		if (!$config['CF']['email'])
 		{
 			echo 'Укажите данные доступа к API Cloudflare в config.php'; 
@@ -280,27 +283,23 @@ else
 		}
 
 		if ($_GET['submenu']=='country')
-		{
-			
-			$file='country';
+		{	
+			$typeData='country';
 		}
 		elseif ($_GET['submenu']=='cf')
 		{
-			$file='ip';
+			$typeData='ip';
 		}
 		elseif ($_GET['submenu']=='ip6')
 		{
-			$file='ip6';
+			$typeData='ip6';
 		}  
 		elseif($_GET['submenu']=='ip_range')
 		{
-			$file='ip_range';
+			$typeData='ip_range';
 		} 
 		elseif ($_GET['submenu']=='geobot')
 		{
-			include(__DIR__.'/Cloudflare.class.php');
-			$cf = new Cloudflare($config['CF']);
-			
 			if (isset($_POST['addcountry']))
 			{
 				if ( !$cf->addCountry( $_POST['addcountry'], 'antiddos, geobots country, '.date("Y-m-d") ) ) $msg='Ошибка, смотрите лог'; else $msg='Страна '.$_POST['addcountry'].' добавлена в файрвол Cloudflare';
@@ -324,14 +323,12 @@ else
 			$echo.='<form name="addcountry" method="post"><select name="addcountry">'.$select.'</select> <input type="submit" value="Добавить страну в файрвол Cloudflare"> </form><br><br>'.$gb;	
 		}
 
-		if (isset($file))
+		if (isset($typeData))
 		{
-			$fileData=$dir.'cloudflare/'.$file.'.data';
-			
-			if (file_exists($fileData))
-			{
-				$data=json_decode( file_get_contents($fileData), true);
-					
+			$data=$cf->loadData($typeData);
+ 	
+			if ($data)
+			{	
 				$echo.='Всего: <span id="allCount">'.count($data).'</span><br><br>';
 					
 				foreach ($data as $rule=>$a)
