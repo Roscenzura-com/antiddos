@@ -373,7 +373,9 @@ class Cloudflare
 
 		if (!file_exists($fileData)) return [];
 		
-		if ($c=file_get_contents($fileData)) return json_decode($c,true); else return [];
+		if ($c=file_get_contents($fileData)) $c=json_decode($c,true); 
+
+		if (is_array($c)) return $c; else return [];
 	}
 	
 	
